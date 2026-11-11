@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chart for a Torus</title>
+<style>
+:root{--bg:#fafaf7;--fg:#1d1d1b;--mut:#6b6b66;--card:#fff;--bd:#dcdcd4;--acc:#14a44d;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16171a;--fg:#ececea;--mut:#9a9a94;--card:#202226;--bd:#363840;--acc:#3ddc84}}
+:root[data-theme="dark"]{--bg:#16171a;--fg:#ececea;--mut:#9a9a94;--card:#202226;--bd:#363840;--acc:#3ddc84}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:980px;margin:0 auto;padding:16px}
+h1{font-size:1.4rem;margin:0 0 4px}
+p.d{color:var(--mut);margin:0 0 14px;font-size:.9rem}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:640px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:8px}
+.card h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:2px 6px 4px;font-weight:600}
+canvas{width:100%;aspect-ratio:1;display:block;touch-action:none}
+.ctl{display:grid;grid-template-columns:auto 1fr auto;gap:8px 10px;align-items:center;margin-top:12px;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px}
+.ctl label{font-weight:600}
+.ctl output{font-variant-numeric:tabular-nums;color:var(--mut);min-width:5.5em;text-align:right}
+input[type=range]{width:100%;accent-color:var(--acc)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center}
+select,button{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:6px 10px}
+button{cursor:pointer}
+.note{margin-top:12px;color:var(--mut);font-size:.85rem}
+</style>
+</head>
+<body>
+<main>
+<h1>Chart for a Torus</h1>
+<p class="d">A 2-torus has two angles (θ, φ). Cut open and flattened onto the plane, it must break somewhere: small steps in θ or φ can cause large jumps. Move the dials to track the green point.</p>
+<div class="grid">
+  <div class="card"><h2>Torus → cylinder → roll-out (drag to rotate)</h2><canvas id="c3"></canvas></div>
+  <div class="card"><h2 id="pt">Plane</h2><canvas id="c2"></canvas></div>
+</div>
+<div class="ctl">
+  <label for="th">θ</label><input id="th" type="range" min="0" max="6.28" step="0.01" value="1">
+  <output id="tho"></output>
+  <label for="ph">φ</label><input id="ph" type="range" min="0" max="6.28" step="0.01" value="2">
+  <output id="pho"></output>
+  <label for="mo">Morph</label><input id="mo" type="range" min="0" max="1" step="0.005" value="0">
+  <output id="moo"></output>
+</div>
+<div class="row">
+  <label for="map">Chart:</label>
+  <select id="map">
+    <option value="0">Rectangle (θ, φ)</option>
+    <option value="1">Annulus (polar)</option>
+    <option value="2">Top-down projection</option>
+    <option value="3">Tangent chart (whole plane)</option>
+  </select>
+  <span style="margin-left:8px">Jump to:</span>
+  <button data-m="0">Torus</button><button data-m="0.5">Cylinder</button><button data-m="1">Roll-out</button>
+  <button id="anim">Animate</button>
+  <button id="zero">Reset θ, φ to 0</button>
+</div>
+<p class="note" id="note"></p>
+</main>
+<script>
+(function(){
+var TAU=Math.PI*2,R=2,r=0.8;
+var th=document.getElementById('th'),ph=document.getElementById('ph');
+var c3=document.getElementById('c3'),c2=document.getElementById('c2');
+var mapSel=document.getElementById('map'),note=document.getElementById('note');
+var ax=-1.0,az=0.6,anim=false;
+var notes=[
+"Flat rectangle with opposite edges identified: the faithful picture, but edges that are glued on the torus lie far apart.",
+"Polar chart: θ is the angle, φ sets the radius. The seam at φ = 0 / 2π jumps from the inner to the outer circle.",
+"Orthographic top view of the embedded donut. Not one-to-one: the upper and lower surfaces overlap.",
+"tan((θ−π)/2), tan((φ−π)/2) covers the entire plane, but points near the seams are flung off to infinity."
+];
+var maps=[
+function(t,p){return[t,TAU-p]},
+function(t,p){var s=1+p/TAU*1.2;return[s*Math.cos(t),s*Math.sin(t)]},
+function(t,p){var q=R+r*Math.cos(p);return[q*Math.cos(t),q*Math.sin(t)]},
+function(t,p){return[Math.tan((t-Math.PI)/2),Math.tan((p-Math.PI)/2)]}
+];
+var bounds=[[0,TAU,0,TAU],[-2.3,2.3,-2.3,2.3],[-3,3,-3,3],[-4,4,-4,4]];
+function wrap(x){x=((x%TAU)+TAU)%TAU;return x>=6.28?0:x}
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function setup(c){var d=window.devicePixelRatio||1,w=c.clientWidth;c.width=w*d;c.height=w*d;var x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);return[x,w]}
+function p3(t,p){var q=R+r*Math.cos(p);return[q*Math.cos(t),q*Math.sin(t),r*Math.sin(p)]}
+function rot(v,A,Z){var cz=Math.cos(Z),sz=Math.sin(Z),cx=Math.cos(A),sx=Math.sin(A);
+var x=v[0]*cz-v[1]*sz,y=v[0]*sz+v[1]*cz,z=v[2];
+return[x,y*cx-z*sx,y*sx+z*cx]}
+function draw3(){
+var s=setup(c3),g=s[0],w=s[1],sc=w/7.2,cx=w/2,cy=w/2,mo=+document.getElementById('mo').value;
+function sm(x){return x*x*(3-2*x)}
+var mi=+mapSel.value,sp=mi===0?1:0.85,e1=sm(Math.min(mo*2,1)),e=sm(Math.min(Math.max((mo-0.5)/(sp-0.5),0),1)),w2=sp<1?sm(Math.min(Math.max((mo-sp)/(1-sp),0),1)):0;
+var A=ax*(1-e),Z=az*(1-e);
+var rho=2,kap=Math.max((1-e)/rho,1e-5),gs=1+(6/(TAU*rho)-1)*e,hh=1.6+1.4*e;
+g.clearRect(0,0,w,w);
+function roll(t,p){var q=rho*(t-Math.PI),X=Math.sin(kap*q)/kap,Y=(1-Math.cos(kap*q))/kap,psi=-Math.PI/2*(1-e),c=Math.cos(psi),n=Math.sin(psi);
+var rx=gs*(X*c-Y*n-rho*(1-e)),ry=gs*(X*n+Y*c),rz=-(p-Math.PI)/Math.PI*hh;
+return[rx,ry,rz]}
+function tube(t,p){var q=r*(p-Math.PI),k1=Math.max((1-e1)/r,1e-5),X=Math.sin(k1*q)/k1,Y=(1-Math.cos(k1*q))/k1,psi=-Math.PI/2,c=Math.cos(psi),n=Math.sin(psi);
+var u=X*c-Y*n-r*(1-e1),v=X*n+Y*c,g1=1+(1.6/(Math.PI*r)-1)*e1,rad=R+g1*u;
+return[rad*Math.cos(t),rad*Math.sin(t),g1*v]}
+function flat(t,p){var q=maps[mi](t,p),b=bounds[mi];q=[Math.max(b[0],Math.min(b[1],q[0])),Math.max(b[2],Math.min(b[3],q[1]))];return[(q[0]-(b[0]+b[1])/2)/(b[1]-b[0])*6,0,(q[1]-(b[2]+b[3])/2)/(b[3]-b[2])*6]}
+function pr(t,p){var k=mo<=0.5?tube(t,p):roll(t,p);if(w2>0){var c=flat(t,p);k=[k[0]*(1-w2)+c[0]*w2,k[1]*(1-w2),k[2]*(1-w2)+c[2]*w2]}var v=rot(k,A,Z);
+return[cx+v[0]*sc,cy-v[2]*sc,v[1]]}
+g.lineWidth=1;
+function line(fn,col){var t0=fn(0),prev=pr(t0[0],t0[1]),pp=t0[1],pf=maps[mi](t0[0],t0[1]),jp=(bounds[mi][1]-bounds[mi][0])*0.2;
+for(var i=1;i<=64;i++){var a=fn(i/64),n=pr(a[0],a[1]);
+var wr=a[1]>TAU&&pp<=TAU;pp=a[1];
+var nf=maps[mi](a[0],a[1]),cj=Math.abs(nf[0]-pf[0])>=jp||Math.abs(nf[1]-pf[1])>=jp;pf=nf;
+g.globalAlpha=(n[2]+prev[2]<0?0.9:0.2+0.7*e)*(wr?1-e1:1)*(cj?1-w2:1);g.strokeStyle=col;g.beginPath();g.moveTo(prev[0],prev[1]);g.lineTo(n[0],n[1]);g.stroke();
+prev=n}}
+var eps=1e-3;
+for(var i=0;i<24;i++){var t=i/24*TAU+eps;line(function(u){return[t,u*TAU+eps]},'hsl('+(i/24*360)+',65%,52%)')}
+for(var j=0;j<12;j++){var p=j/12*TAU+eps;line(function(u){return[u*TAU+eps,p]},css('--mut'))}
+g.globalAlpha=1;
+var q=pr(wrap(+th.value),wrap(+ph.value));
+g.fillStyle=css('--acc');g.strokeStyle=css('--bg');g.lineWidth=2;
+g.beginPath();g.arc(q[0],q[1],7,0,TAU);g.fill();g.stroke();
+}
+function draw2(){
+var s=setup(c2),g=s[0],w=s[1],m=+mapSel.value,f=maps[m],b=bounds[m],pad=14;
+function X(u){return pad+(u-b[0])/(b[1]-b[0])*(w-2*pad)}
+function Y(v){return w-pad-(v-b[2])/(b[3]-b[2])*(w-2*pad)}
+g.clearRect(0,0,w,w);
+g.strokeStyle=css('--bd');g.lineWidth=1;g.strokeRect(pad,pad,w-2*pad,w-2*pad);
+g.save();g.beginPath();g.rect(pad,pad,w-2*pad,w-2*pad);g.clip();
+var jump=(b[1]-b[0])*0.2;
+function line(fn,col){var N=160,prev=null;g.strokeStyle=col;g.lineWidth=1.2;g.globalAlpha=.85;
+for(var i=0;i<=N;i++){var a=fn(i/N),pt=f(a[0],a[1]);
+if(prev&&Math.abs(pt[0]-prev[0])<jump&&Math.abs(pt[1]-prev[1])<jump){g.beginPath();g.moveTo(X(prev[0]),Y(prev[1]));g.lineTo(X(pt[0]),Y(pt[1]));g.stroke()}
+prev=pt}}
+var eps=1e-3;
+for(var i=0;i<24;i++){var t=(i/24)*TAU+eps;line(function(u){return[t,u*TAU+eps]},'hsl('+(i/24*360)+',65%,52%)')}
+for(var j=0;j<12;j++){var p=(j/12)*TAU+eps;line(function(u){return[u*TAU+eps,p]},css('--mut'))}
+g.restore();g.globalAlpha=1;
+var q=f(wrap(+th.value),wrap(+ph.value));
+g.fillStyle=css('--acc');g.strokeStyle=css('--bg');g.lineWidth=2;
+g.beginPath();g.arc(X(q[0]),Y(q[1]),7,0,TAU);g.fill();g.stroke();
+document.getElementById('pt').textContent=m===0?'Plane: ('+wrap(+th.value).toFixed(2)+', '+wrap(+ph.value).toFixed(2)+')':'Plane: ('+q[0].toFixed(2)+', '+q[1].toFixed(2)+')';
+}
+function draw(){
+document.getElementById('tho').textContent=wrap(+th.value).toFixed(2)+' rad';
+document.getElementById('pho').textContent=wrap(+ph.value).toFixed(2)+' rad';
+var mv=+document.getElementById('mo').value;document.getElementById('moo').textContent=mv<0.01?'Torus':Math.abs(mv-0.5)<0.01?'Cylinder':mv>0.99?'Roll-out':mv<0.5?'Torus→Cyl.':'Cyl.→Roll-out';
+note.textContent=notes[+mapSel.value];
+draw3();draw2();
+}
+[th,ph,mapSel,document.getElementById('mo')].forEach(function(e){e.addEventListener('input',draw)});
+var drag=null;
+c3.addEventListener('pointerdown',function(e){drag=[e.clientX,e.clientY];c3.setPointerCapture(e.pointerId)});
+c3.addEventListener('pointermove',function(e){if(!drag)return;
+az+=(e.clientX-drag[0])*0.01;ax=Math.max(-3.1,Math.min(0.1,ax+(e.clientY-drag[1])*0.01));drag=[e.clientX,e.clientY];draw()});
+c3.addEventListener('pointerup',function(){drag=null});
+document.querySelectorAll('button[data-m]').forEach(function(b){b.addEventListener('click',function(){document.getElementById('mo').value=b.dataset.m;draw()})});
+var btn=document.getElementById('anim');
+document.getElementById('zero').addEventListener('click',function(){th.value=0;ph.value=0;draw()});
+function tick(){if(!anim)return;
+th.value=(+th.value+0.02)%TAU;ph.value=(+ph.value+0.055)%TAU;draw();requestAnimationFrame(tick)}
+btn.addEventListener('click',function(){anim=!anim;btn.textContent=anim?'Stop':'Animate';if(anim)tick()});
+window.addEventListener('resize',draw);
+draw();
+})();
+</script>
+</body>
+</html>
